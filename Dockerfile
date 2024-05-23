@@ -12,7 +12,7 @@ ENV GOARCH=$TARGETARCH
 RUN apt-get update -y && apt-get install -y build-essential gcc wget unzip
 COPY backend/ ./
 COPY --from=front-builder  /app/dist/ /app/web/html/
-RUN go build -o sui main.go
+RUN go build -ldflags="-w -s" -o sui main.go
 RUN git clone -b v1.8.14 https://github.com/SagerNet/sing-box
 RUN cd sing-box \
  && go build -v -gcflags=all="-l -B -C" -mod=mod -trimpath \
