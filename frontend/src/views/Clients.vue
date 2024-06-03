@@ -36,7 +36,10 @@
             <v-col>{{ item.name }}</v-col>
             <v-spacer></v-spacer>
             <v-col cols="auto">
-              <v-switch color="primary" v-model="clients[index].enable" hideDetails density="compact" />
+              <v-switch color="primary"
+              v-model="clients[index].enable"
+              @update:model-value="buildInboundsUsers(item.inbounds.split(','))"
+              hideDetails density="compact" />
             </v-col>
           </v-row>
         </v-card-title>
@@ -179,18 +182,18 @@ const closeModal = () => {
   modal.value.visible = false
 }
 const saveModal = (data:any, stats:boolean) => {
-  if (clients.value.findIndex(c => c.name == data.name) != modal.value.index) {
+  // Check duplicate name
+  const oldName = modal.value.index != -1 ? clients.value[modal.value.index].name : null
+  if (data.name != oldName && clients.value.findIndex(c => c.name == data.name) != -1) {
     const sb = Message()
     sb.showMessage(i18n.global.t('error.dplData') + ': ' + i18n.global.t('client.name') ,'error', 5000)
     return
   }
   const inboundTags: string[] = data.inbounds.split(',')?? []
-  let oldName:string = ""
   if(modal.value.index == -1) {
     clients.value.push(data)
   } else {
     const oldData = createClient(clients.value[modal.value.index])
-    oldName = oldData.name
     oldData.inbounds.split(',').forEach((i:string) => {
       if (!inboundTags.includes(i)) inboundTags.push(i)
     })
