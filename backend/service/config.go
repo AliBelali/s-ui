@@ -6,6 +6,7 @@ import (
 	"s-ui/config"
 	"s-ui/database"
 	"s-ui/database/model"
+	"s-ui/logger"
 	"s-ui/singbox"
 	"strconv"
 	"time"
@@ -16,6 +17,7 @@ var LastUpdate int64
 
 type ConfigService struct {
 	ClientService
+	TlsService
 	singbox.Controller
 	SettingService
 }
@@ -53,23 +55,40 @@ func (s *ConfigService) InitConfig() error {
 			return err
 		}
 	}
-	return s.RefreshApiAddr(&data)
+	var singboxConfig SingBoxConfig
+	err = json.Unmarshal(data, &singboxConfig)
+	if err != nil {
+		return err
+	}
+
+	return s.RefreshApiAddr(&singboxConfig)
 }
 
-func (s *ConfigService) GetConfig() (*[]byte, error) {
+func (s *ConfigService) GetConfig() (*SingBoxConfig, error) {
 	configPath := config.GetBinFolderPath()
 	data, err := os.ReadFile(configPath + "/config.json")
 	if err != nil {
 		return nil, err
 	}
-	return &data, nil
+	singboxConfig := SingBoxConfig{}
+	err = json.Unmarshal(data, &singboxConfig)
+	if err != nil {
+		return nil, err
+	}
+	return &singboxConfig, nil
 }
 
 func (s *ConfigService) SaveChanges(changes map[string]string, loginUser string) error {
 	var err error
-	var clientChanges, settingChanges, configChanges []model.Changes
+	var clientChanges, tlsChanges, settingChanges, configChanges []model.Changes
 	if _, ok := changes["clients"]; ok {
 		err = json.Unmarshal([]byte(changes["clients"]), &clientChanges)
+		if err != nil {
+			return err
+		}
+	}
+	if _, ok := changes["tls"]; ok {
+		err = json.Unmarshal([]byte(changes["tls"]), &tlsChanges)
 		if err != nil {
 			return err
 		}
@@ -103,6 +122,12 @@ func (s *ConfigService) SaveChanges(changes map[string]string, loginUser string)
 			return err
 		}
 	}
+	if len(tlsChanges) > 0 {
+		err = s.TlsService.Save(tx, tlsChanges)
+		if err != nil {
+			return err
+		}
+	}
 	if len(settingChanges) > 0 {
 		err = s.SettingService.Save(tx, settingChanges)
 		if err != nil {
@@ -114,11 +139,7 @@ func (s *ConfigService) SaveChanges(changes map[string]string, loginUser string)
 		if err != nil {
 			return err
 		}
-		newConfig := SingBoxConfig{}
-		err = json.Unmarshal(*singboxConfig, &newConfig)
-		if err != nil {
-			return err
-		}
+		newConfig := *singboxConfig
 		for _, change := range configChanges {
 			rawObject := change.Obj
 			switch change.Key {
@@ -156,12 +177,7 @@ func (s *ConfigService) SaveChanges(changes map[string]string, loginUser string)
 			}
 		}
 
-		// Save to config.json
-		data, err := json.MarshalIndent(newConfig, "", "  ")
-		if err != nil {
-			return err
-		}
-		err = s.Save(&data)
+		err = s.Save(&newConfig)
 		if err != nil {
 			return err
 		}
@@ -169,7 +185,7 @@ func (s *ConfigService) SaveChanges(changes map[string]string, loginUser string)
 
 	// Log changes
 	dt := time.Now().Unix()
-	allChanges := append(append(clientChanges, settingChanges...), configChanges...)
+	allChanges := append(append(clientChanges, settingChanges...), append(configChanges, tlsChanges...)...)
 	for index := range allChanges {
 		allChanges[index].DateTime = dt
 		allChanges[index].Actor = loginUser
@@ -202,7 +218,7 @@ func (s *ConfigService) CheckChanges(lu string) (bool, error) {
 	}
 }
 
-func (s *ConfigService) Save(data *[]byte) error {
+func (s *ConfigService) Save(singboxConfig *SingBoxConfig) error {
 	configPath := config.GetBinFolderPath()
 	_, err := os.Stat(configPath + "/config.json")
 	if os.IsNotExist(err) {
@@ -214,35 +230,36 @@ func (s *ConfigService) Save(data *[]byte) error {
 		return err
 	}
 
-	err = os.WriteFile(configPath+"/config.json", *data, 0764)
+	data, err := json.MarshalIndent(singboxConfig, " ", "  ")
 	if err != nil {
 		return err
 	}
 
-	s.RefreshApiAddr(data)
+	err = os.WriteFile(configPath+"/config.json", data, 0764)
+	if err != nil {
+		return err
+	}
+
+	s.RefreshApiAddr(singboxConfig)
 	s.Controller.Restart()
 
 	return nil
 }
 
-func (s *ConfigService) RefreshApiAddr(data *[]byte) error {
+func (s *ConfigService) RefreshApiAddr(singboxConfig *SingBoxConfig) error {
 	Env_API := config.GetEnvApi()
 	if len(Env_API) > 0 {
 		ApiAddr = Env_API
 	} else {
 		var err error
-		if data == nil {
-			data, err = s.GetConfig()
+		if singboxConfig == nil {
+			singboxConfig, err = s.GetConfig()
 			if err != nil {
 				return err
 			}
+
 		}
 
-		singboxConfig := SingBoxConfig{}
-		err = json.Unmarshal(*data, &singboxConfig)
-		if err != nil {
-			return err
-		}
 		var experimental struct {
 			V2rayApi struct {
 				Listen string      `json:"listen"`
@@ -269,12 +286,7 @@ func (s *ConfigService) DepleteClients() error {
 	if err != nil {
 		return err
 	}
-	newConfig := SingBoxConfig{}
-	err = json.Unmarshal(*singboxConfig, &newConfig)
-	if err != nil {
-		return err
-	}
-	for inbound_index, inbound := range newConfig.Inbounds {
+	for inbound_index, inbound := range singboxConfig.Inbounds {
 		var inboundJson map[string]interface{}
 		json.Unmarshal(inbound, &inboundJson)
 		if s.contains(inbounds, inboundJson["tag"].(string)) {
@@ -313,13 +325,10 @@ func (s *ConfigService) DepleteClients() error {
 		if err != nil {
 			return err
 		}
-		newConfig.Inbounds[inbound_index] = modifiedInbound
+		singboxConfig.Inbounds[inbound_index] = modifiedInbound
 	}
-	modifiedConfig, err := json.MarshalIndent(newConfig, "", "  ")
-	if err != nil {
-		return err
-	}
-	err = s.Save(&modifiedConfig)
+
+	err = s.Save(singboxConfig)
 	if err != nil {
 		return err
 	}
@@ -333,4 +342,22 @@ func (s *ConfigService) contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func (s *ConfigService) GetChanges(actor string, chngKey string, count string) []model.Changes {
+	c, _ := strconv.Atoi(count)
+	whereString := "`id`>0"
+	if len(actor) > 0 {
+		whereString += " and `actor`='" + actor + "'"
+	}
+	if len(chngKey) > 0 {
+		whereString += " and `key`='" + chngKey + "'"
+	}
+	db := database.GetDB()
+	var chngs []model.Changes
+	err := db.Model(model.Changes{}).Where(whereString).Order("`id` desc").Limit(c).Scan(&chngs).Error
+	if err != nil {
+		logger.Warning(err)
+	}
+	return chngs
 }

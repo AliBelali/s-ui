@@ -9,7 +9,7 @@
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, ref,watch } from "vue"
+import { computed, ref } from "vue"
 import { useTheme } from "vuetify"
 import { FindDiff } from "@/plugins/utils"
 import Data from "@/store/modules/data"
@@ -32,11 +32,11 @@ const saveChanges = () => {
 }
 
 const oldData = computed((): any => {
-  return {config: store.oldData.config, clients: store.oldData.clients}
+  return {config: store.oldData.config, clients: store.oldData.clients, tls: store.oldData.tlsConfigs}
 })
 
 const newData = computed((): any => {
-  return {config: store.config, clients: store.clients}
+  return {config: store.config, clients: store.clients, tls: store.tlsConfigs}
 })
 
 const stateChange = computed((): any => {

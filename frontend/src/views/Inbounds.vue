@@ -7,6 +7,7 @@
     :data="modal.data"
     :inTags="inTags"
     :outTags="outTags"
+    :tlsConfigs="tlsConfigs"
     @close="closeModal"
     @save="saveModal"
   />
@@ -108,8 +109,8 @@ import { computed, ref } from 'vue'
 import { InTypes, Inbound, InboundWithUser, ShadowTLS, VLESS } from '@/types/inbounds'
 import { Client } from '@/types/clients'
 import { Link, LinkUtil } from '@/plugins/link'
-import Message from '@/store/modules/message'
 import { i18n } from '@/locales'
+import { push } from 'notivue'
 
 const appConfig = computed((): Config => {
   return <Config> Data().config
@@ -117,6 +118,10 @@ const appConfig = computed((): Config => {
 
 const inbounds = computed((): Inbound[] => {
   return <Inbound[]> appConfig.value.inbounds
+})
+
+const tlsConfigs = computed((): any[] => {
+  return <any[]> Data().tlsConfigs
 })
 
 const inTags = computed((): string[] => {
@@ -157,23 +162,38 @@ const showModal = (id: number) => {
 const closeModal = () => {
   modal.value.visible = false
 }
-const saveModal = (data:Inbound, stats: boolean) => {
+const saveModal = (data:Inbound, stats: boolean, tls_id: number) => {
   // Check duplicate tag
   const oldTag = modal.value.id != -1 ? inbounds.value[modal.value.id].tag : null
   if (data.tag != oldTag && inTags.value.includes(data.tag)) {
-    const sb = Message()
-    sb.showMessage(i18n.global.t('error.dplData') + ': ' + i18n.global.t('objects.tag') ,'error', 5000)
+    push.error({
+      message: i18n.global.t('error.dplData') + ": " + i18n.global.t('objects.tag')
+    })
     return
   }
+
   // New or Edit
   if (modal.value.id == -1) {
     inbounds.value.push(data)
     if (stats && data.tag.length>0) {
       v2rayStats.value.inbounds.push(data.tag)
     }
+    // Update tls preset
+    if (tls_id>0) {
+      tlsConfigs.value.findLast(t => t.id == tls_id).inbounds.push(data.tag)
+    }
   } else {
     const oldTag = inbounds.value[modal.value.id].tag
     const sIndex = v2rayStats.value.inbounds.findIndex(i => i == data.tag) // Find if new tag exists
+
+    // Update tls preset
+    const oldTlsConfigIndex = tlsConfigs?.value.findIndex(t => t.inbounds?.includes(oldTag))
+    if (oldTlsConfigIndex != -1){
+      tlsConfigs.value[oldTlsConfigIndex].inbounds = tlsConfigs?.value[oldTlsConfigIndex].inbounds.filter((i:string) => i != oldTag)
+    }
+    if (tls_id>0) {
+      tlsConfigs.value.findLast(t => t.id == tls_id).inbounds.push(data.tag)
+    }
 
     if (oldTag != data.tag) {
       v2rayStats.value.inbounds = v2rayStats.value.inbounds.filter(item => item != oldTag)
@@ -198,23 +218,24 @@ const saveModal = (data:Inbound, stats: boolean) => {
   }
   modal.value.visible = false
 }
-const updateLinks = (i: InboundWithUser) => {
+const updateLinks = (i: any) => {
   if(i.users && i.users.length>0){
     i.users.forEach((u:any) => {
       const client = clients.value.find(c => u.username? c.name == u.username : c.name == u.name)
       if (client){
-        const clientInbounds = <Inbound[]>inbounds.value.filter(inb => client?.inbounds.split(',').includes(inb.tag))
+        const clientInbounds = <Inbound[]>inbounds.value.filter(inb => client?.inbounds.includes(inb.tag))
         const newLinks = <Link[]>[]
         clientInbounds.forEach(i =>{
-          const uri = LinkUtil.linkGenerator(client.name,i)
+          const tlsClient = tlsConfigs?.value.findLast((t:any) => t.inbounds.includes(i.tag))?.client?? null
+          const uri = LinkUtil.linkGenerator(client.name,i, tlsClient)
           if (uri.length>0){
             newLinks.push(<Link>{ type: 'local', remark: i.tag, uri: uri })
           }
         })
-        let links = client.links && client.links.length>0? <Link[]>JSON.parse(client.links) : <Link[]>[]
+        let links = client.links && client.links.length>0? client.links : <Link[]>[]
         links = [...newLinks, ...links.filter(l => l.type != 'local')]
 
-        client.links = JSON.stringify(links)
+        client.links = links
       }
     })
   }
@@ -224,19 +245,26 @@ const delInbound = (index: number) => {
   inbounds.value.splice(index,1)
   const tag = inb.tag
 
-  if (Object.hasOwn(inb,'users')){
+  if (Object.hasOwn(inb,'users')) {
     const inbU = <InboundWithUser>inb
     if (inbU.users && inbU.users.length>0){
       inbU.users.forEach((u:any) => {
-        const c_index = clients.value.findIndex(c => u.username? u.username == c.name : u.user == c.name)
+        const c_index = clients.value.findIndex(c => u.username? u.username == c.name : u.name == c.name)
         if (c_index != -1) {
-          const clientInbounds = clients.value[c_index].inbounds.split(',').filter((x:string) => x!=tag)
-          clients.value[c_index].inbounds = clientInbounds.join(',')
+          const clientInbounds = clients.value[c_index].inbounds.filter((x:string) => x!=tag)
+          clients.value[c_index].inbounds = clientInbounds
         }
       })
     }
   }
 
+  // Delete binded tls if exists
+  if (Object.hasOwn(inb,'tls')) {
+    const oldTlsConfigIndex = tlsConfigs?.value.findIndex(t => t.inbounds?.includes(inb.tag))
+    if (oldTlsConfigIndex != -1){
+      tlsConfigs.value[oldTlsConfigIndex].inbounds = tlsConfigs?.value[oldTlsConfigIndex].inbounds.filter((i:string) => i != inb.tag)
+    }
+  }
 
   // Delete stats if exists and will be orphaned
   const tagCounts = inbounds.value.filter(i => i.tag == inb.tag).length
@@ -249,17 +277,16 @@ const delInbound = (index: number) => {
   }
   delOverlay.value[index] = false
 }
-const buildInboundsUsers = (inbound:InboundWithUser):Inbound => {
+const buildInboundsUsers = (inbound:any):Inbound => {
     const users = <any>[]
-    const inboundClients = clients.value.filter(c => c.enable && c.inbounds.split(',').includes(inbound.tag))
+    const inboundClients = clients.value.filter(c => c.enable && c.inbounds.includes(inbound.tag))
     inboundClients.forEach(c => {
-      const clientConfig = JSON.parse(c.config)
       // Remove flow in non tls VLESS
       if (inbound.type == InTypes.VLESS) {
         const vlessInbound = <VLESS>inbound
-        if (!vlessInbound.tls?.enabled || vlessInbound.transport?.type) delete(clientConfig["vless"].flow)
+        if (!vlessInbound.tls?.enabled || vlessInbound.transport?.type) delete(c.config?.vless?.flow)
       }
-      users.push(clientConfig[inbound.type])
+      users.push(c.config[inbound.type])
     })
     inbound.users = users
 
@@ -279,11 +306,10 @@ const buildInboundsUsers = (inbound:InboundWithUser):Inbound => {
 }
 const changeClientInboundsTag = (oldtag: string, newTag:string) => {
   clients.value.forEach((c, c_index) => {
-    const inboundsArray = c.inbounds.split(',')
-    const inbound_index = inboundsArray.findIndex(i => i == oldtag)
+    const inbound_index = c.inbounds.findIndex(i => i == oldtag)
     if (inbound_index != -1) {
-      inboundsArray[inbound_index] = newTag
-      clients.value[c_index].inbounds = inboundsArray.join(',')
+      c.inbounds[inbound_index] = newTag
+      clients.value[c_index].inbounds = c.inbounds
     }
   })
 }
