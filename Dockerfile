@@ -3,9 +3,10 @@ WORKDIR /app
 COPY frontend/ ./
 RUN npm install && npm run build
 
-FROM golang:1.23-bookworm AS singbox-builder
+FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS singbox-builder
+LABEL maintainer="Alireza <alireza7@gmail.com>"
 WORKDIR /app
-ARG TARGETARCH
+ARG TARGETOS TARGETARCH
 ARG SINGBOX_VER=v1.10.1
 ARG SINGBOX_TAGS="with_quic,with_grpc,with_wireguard,with_ech,with_utls,with_reality_server,with_acme,with_v2ray_api,with_clash_api,with_gvisor"
 ARG GOPROXY=""
@@ -22,7 +23,7 @@ RUN set -ex \
         -ldflags "-X \"github.com/sagernet/sing-box/constant.Version=$SINGBOX_VER\" -s -w -buildid=" \
         ./cmd/sing-box
 
-FROM --platform=$BUILDPLATFORM golang:1.22-bookworm AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS backend-builder
 WORKDIR /app
 ARG TARGETOS TARGETARCH
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
@@ -32,7 +33,7 @@ RUN apt-get update -y && apt-get install -y build-essential gcc wget unzip
 COPY backend/ ./
 COPY --from=front-builder  /app/dist/ /app/web/html/
 RUN go build -ldflags="-w -s" -o sui main.go
-		
+
 FROM --platform=$TARGETPLATFORM debian:bookworm
 LABEL org.opencontainers.image.authors="alireza7@gmail.com"
 ENV TZ=Asia/Tehran
