@@ -4,7 +4,6 @@ COPY frontend/ ./
 RUN npm install && npm run build
 
 FROM golang:1.23-bookworm AS singbox-builder
-LABEL maintainer="Alireza <alireza7@gmail.com>"
 WORKDIR /app
 ARG TARGETARCH
 ARG SINGBOX_VER=v1.10.1
