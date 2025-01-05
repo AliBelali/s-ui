@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM node:bookworm as front-builder
+FROM --platform=$BUILDPLATFORM node:bookworm AS front-builder
 WORKDIR /app
 COPY frontend/ ./
 RUN npm install && npm run build
@@ -34,7 +34,7 @@ COPY backend/ ./
 COPY --from=front-builder  /app/dist/ /app/web/html/
 RUN go build -ldflags="-w -s" -o sui main.go
 
-FROM --platform=$TARGETPLATFORM debian:bookworm
+FROM debian:bookworm
 LABEL org.opencontainers.image.authors="alireza7@gmail.com"
 ENV TZ=Asia/Tehran
 WORKDIR /usr/local/s-ui
