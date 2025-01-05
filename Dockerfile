@@ -10,7 +10,7 @@ ARG TARGETOS TARGETARCH
 ARG SINGBOX_VER=v1.10.1
 ARG SINGBOX_TAGS="with_quic,with_grpc,with_wireguard,with_ech,with_utls,with_reality_server,with_acme,with_v2ray_api,with_clash_api,with_gvisor"
 ARG GOPROXY=""
-ENV GOPROXY ${GOPROXY}
+ENV GOPROXY=${GOPROXY}
 ENV CGO_ENABLED=0
 ENV GOOS=$TARGETOS
 ENV GOARCH=$TARGETARCH
