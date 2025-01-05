@@ -29,6 +29,7 @@ ARG TARGETOS TARGETARCH
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
 ENV CGO_ENABLED=1
 ENV GOARCH=$TARGETARCH
+ENV GOOS=$TARGETOS
 RUN apt-get update -y && apt-get install -y build-essential gcc wget unzip
 COPY backend/ ./
 COPY --from=front-builder  /app/dist/ /app/web/html/
