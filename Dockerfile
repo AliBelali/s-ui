@@ -3,10 +3,10 @@ WORKDIR /app
 COPY frontend/ ./
 RUN npm install && npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS singbox-builder
+FROM golang:1.23-bookworm AS singbox-builder
 LABEL maintainer="Alireza <alireza7@gmail.com>"
 WORKDIR /app
-ARG TARGETOS TARGETARCH
+ARG TARGETARCH
 ARG SINGBOX_VER=v1.10.1
 ARG SINGBOX_TAGS="with_quic,with_grpc,with_wireguard,with_ech,with_utls,with_reality_server,with_acme,with_v2ray_api,with_clash_api,with_gvisor"
 ARG GOPROXY=""
